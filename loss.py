@@ -7,7 +7,6 @@ from gensim.models import Word2Vec
 from torchvision import models
 import librosa
 import numpy as np
-
 import torch
 import numpy as np
 
@@ -98,10 +97,15 @@ def volume_computation3(language, video, audio):
 
 
     # Stack the results to form the Gram matrix for each pair (shape: [batch_size1, batch_size2, 4, 4])
+    # G = torch.stack([
+    #     torch.stack([torch.ones_like(ll), lv, la], dim=-1),  # First row of the Gram matrix
+    #     torch.stack([torch.ones_like(lv),torch.ones_like(vv), va], dim=-1),  # Second row of the Gram matrix
+    #     torch.stack([torch.ones_like(la), torch.ones_like(va), torch.ones_like(aa)], dim=-1)  # Third row of the Gram matrix
+    # ], dim=-2)
     G = torch.stack([
         torch.stack([torch.ones_like(ll), lv, la], dim=-1),  # First row of the Gram matrix
-        torch.stack([torch.ones_like(lv),torch.ones_like(vv), va], dim=-1),  # Second row of the Gram matrix
-        torch.stack([torch.ones_like(la), torch.ones_like(va), torch.ones_like(aa)], dim=-1)  # Third row of the Gram matrix
+        torch.stack([lv,torch.ones_like(vv), va], dim=-1),  # Second row of the Gram matrix
+        torch.stack([la, va, torch.ones_like(aa)], dim=-1)  # Third row of the Gram matrix
     ], dim=-2)
 
     # Compute the determinant for each Gram matrix (shape: [batch_size1, batch_size2])
@@ -280,8 +284,56 @@ def volume_computation5(language, video, audio, subtitles, depth):
     return res
 
 
+def compute_centroids_OLD(text_embeddings, visual_embeddings, audio_embeddings, norm_threshold=0.0):
+    """
+    Computes the centroid for each pair of samples between text embeddings and visual/audio embeddings,
+    by calculating the mean of the corresponding feature vectors across the two modalities.
 
-def compute_centroids(text_embeddings, visual_embeddings, audio_embeddings):
+    Then applies norm conditioning only on the main diagonal.
+
+    Parameters:
+    - text_embeddings (torch.Tensor): Tensor of shape (batch_size1, feature_dim) representing text embeddings.
+    - visual_embeddings (torch.Tensor): Tensor of shape (batch_size2, feature_dim) representing visual embeddings.
+    - audio_embeddings (torch.Tensor): Tensor of shape (batch_size2, feature_dim) representing audio embeddings.
+    - norm_threshold (float): The threshold to apply conditioning on the norms.
+
+    Returns:
+    - torch.Tensor: Tensor of shape (batch_size1, batch_size2) representing the norms conditioned on the diagonal.
+    - torch.Tensor: Tensor of shape (batch_size1, batch_size2, feature_dim) representing the centroids.
+    """
+
+    # Get batch sizes
+    batch_size1 = text_embeddings.shape[0]   # For text embeddings
+    batch_size2 = visual_embeddings.shape[0]  # For visual/audio embeddings
+
+    # Compute centroids by averaging text and visual/audio embeddings
+    # Expand the dimensions to allow pairwise computation
+    text_expanded = text_embeddings.unsqueeze(1)  # Shape: [batch_size1, 1, feature_dim]
+    visual_expanded = visual_embeddings.unsqueeze(0)  # Shape: [1, batch_size2, feature_dim]
+    audio_expanded = audio_embeddings.unsqueeze(0)  # Shape: [1, batch_size2, feature_dim]
+
+    # Compute the centroid by averaging the embeddings
+    centroids = (text_expanded + visual_expanded + audio_expanded) / 3.0
+    
+    # Compute norms along the last dimension (feature_dim)
+    centroid_norms = torch.norm(centroids, dim=-1)  # Shape: [batch_size1, batch_size2]
+
+    # Create a mask for the diagonal elements (i == j)
+    diagonal_mask = torch.eye(batch_size1, batch_size2, device=centroid_norms.device)
+
+    # Apply norm conditioning only to the diagonal elements
+    # For the diagonal: apply the threshold condition
+    # For non-diagonal elements: leave unchanged (or set to 0, or some other operation)
+    conditioned_norms = torch.where(diagonal_mask.bool(), 
+                                    centroid_norms - norm_threshold,
+                                    #torch.where(centroid_norms >= norm_threshold, centroid_norms, torch.tensor(0.0, dtype=centroid_norms.dtype)), 
+                                    centroid_norms)
+
+    return conditioned_norms, centroids
+
+
+
+def compute_centroidsTest(text_embeddings, visual_embeddings, audio_embeddings):
     """
     Computes the centroid for each pair of samples between text embeddings and visual/audio embeddings
     by calculating the mean of the corresponding feature vectors across the two modalities.
@@ -312,12 +364,64 @@ def compute_centroids(text_embeddings, visual_embeddings, audio_embeddings):
     
     centroid_norms = torch.norm(centroids, dim=-1)
 
-    norm_condition = centroid_norms >= 0.5
-    centroid_norms = torch.where(norm_condition, centroid_norms, torch.tensor(0.0))
+    #norm_condition = centroid_norms >= 0.5
+    #centroid_norms = torch.where(norm_condition, centroid_norms, torch.tensor(0.0))
 
-    return centroid_norms
+    return centroid_norms, centroids
 
-    #return centroid_norms
+
+
+
+
+def compute_centroids_only(text_embeddings, visual_embeddings, audio_embeddings, norm_threshold=0.0):
+    """
+    Computes the centroid for each pair of samples between text embeddings and visual/audio embeddings,
+    by calculating the mean of the corresponding feature vectors across the two modalities.
+
+    Then applies norm conditioning only on the main diagonal.
+
+    Parameters:
+    - text_embeddings (torch.Tensor): Tensor of shape (batch_size1, feature_dim) representing text embeddings.
+    - visual_embeddings (torch.Tensor): Tensor of shape (batch_size2, feature_dim) representing visual embeddings.
+    - audio_embeddings (torch.Tensor): Tensor of shape (batch_size2, feature_dim) representing audio embeddings.
+    - norm_threshold (float): The threshold to apply conditioning on the norms.
+
+    Returns:
+    - torch.Tensor: Tensor of shape (batch_size1, batch_size2) representing the norms conditioned on the diagonal.
+    - torch.Tensor: Tensor of shape (batch_size1, batch_size2, feature_dim) representing the centroids.
+    """
+
+    # Get batch sizes
+    batch_size1 = text_embeddings.shape[0]   # For text embeddings
+    batch_size2 = visual_embeddings.shape[0]  # For visual/audio embeddings
+
+    # Compute centroids by averaging text and visual/audio embeddings
+    # Expand the dimensions to allow pairwise computation
+    #text_expanded = text_embeddings.unsqueeze(1)  # Shape: [batch_size1, 1, feature_dim]
+    #visual_expanded = visual_embeddings.unsqueeze(0)  # Shape: [1, batch_size2, feature_dim]
+    #audio_expanded = audio_embeddings.unsqueeze(0)  # Shape: [1, batch_size2, feature_dim]
+
+    # Compute the centroid by averaging the embeddings
+    centroids = (text_embeddings + visual_embeddings + audio_embeddings) / 3.0
+    
+    # Compute norms along the last dimension (feature_dim)
+    centroid_norms = torch.norm(centroids, dim=-1)  # Shape: [batch_size1, batch_size2]
+
+    # Create a mask for the diagonal elements (i == j)
+    diagonal_mask = torch.eye(batch_size1, batch_size2, device=centroid_norms.device)
+
+    # Apply norm conditioning only to the diagonal elements
+    # For the diagonal: apply the threshold condition
+    # For non-diagonal elements: leave unchanged (or set to 0, or some other operation)
+    conditioned_norms = torch.where(diagonal_mask.bool(), 
+                                    centroid_norms - norm_threshold,
+                                    #torch.where(centroid_norms >= norm_threshold, centroid_norms, torch.tensor(0.0, dtype=centroid_norms.dtype)), 
+                                    centroid_norms)
+
+    return  centroids
+
+
+import numpy as np
 
 
 
@@ -332,3 +436,27 @@ def compute_centroids(text_embeddings, visual_embeddings, audio_embeddings):
 # centroids = compute_centroids(text_embeddings, visual_embeddings, audio_embeddings)
 
 #print(centroids)
+
+
+# # Define the number of items
+# n_items = 10
+
+# # Initialize an empty similarity matrix
+# similarity_matrix = np.zeros((n_items, n_items))
+
+# # Fill the matrix with similarity values iteratively
+# for i in range(n_items):
+#     similarity_matrix[i, i] = 1.0  # Perfect similarity with itself
+    
+#     # For items further away from item i (distance 1 to n_items - 1)
+#     for dist in range(1, n_items):
+#         # The target item index
+#         j = i + dist
+#         if j < n_items:
+#             # The similarity value decreases as distance increases
+#             similarity_value = 1.0 - dist * 0.1
+#             similarity_matrix[i, j] = similarity_value
+#             similarity_matrix[j, i] = similarity_value  # Ensure symmetry
+
+# # Print the similarity matrix
+# print(similarity_matrix)
