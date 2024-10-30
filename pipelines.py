@@ -115,6 +115,7 @@ def eval(test_dataloader, text_encoder, audio_encoder, vision_encoder, device,it
 def train_model_with_visualization(text_encoder, audio_encoder, vision_encoder, dataloader_train, dataloader_test, optimizer, device, num_iterations,contra_temp):
     
     similarity_matrix = compute_similarity_matrix()
+    #similarity_matrix = F.softmax(similarity_matrix,dim=0)
     text_encoder.train()
     audio_encoder.train()
     vision_encoder.train()
@@ -124,7 +125,7 @@ def train_model_with_visualization(text_encoder, audio_encoder, vision_encoder, 
         text_encoder.train()
         audio_encoder.train()
         vision_encoder.train()
-
+    kl_loss = nn.KLDivLoss(reduction="batchmean")
     running_loss = 0.0
     tq=tqdm(range(num_iterations),total=num_iterations)
     train_iterator = iter(dataloader_train)
@@ -152,59 +153,82 @@ def train_model_with_visualization(text_encoder, audio_encoder, vision_encoder, 
         targets = torch.linspace(0,  bs - 1, bs, dtype=int).to('cuda')
 
         centroids = compute_centroids_only(text_embedding, audio_embedding, vision_embedding)
+
+        centroids_norm =  torch.norm(centroids, dim=-1)
+
+
+
+        #loss_centr = F.mse_loss(centroids_norm,torch.tensor([1,1,1,1,1,1,1,1,1,1]).float().to("cuda"))
+
+        centroids_normalized = F.normalize(centroids,dim=-1)
+
+        #centroids_matrix = torch.matmul(centroids_normalized, centroids_normalized.permute(1,0))
         centroids_matrix = torch.matmul(centroids, centroids.permute(1,0))
+
+        #mask = torch.diag(torch.ones_like(centroids_matrix))
+        #centroids_matrix = mask*torch.diag(centroids_norm) + (1. - mask)*centroids_matrix
+        
+        #centroids_matrix = centroids_matrix / contra_temp
+        #centroids_matrix = F.log_softmax(centroids_matrix, dim=0)
+        loss_centr2 = F.cross_entropy(centroids_matrix, similarity_matrix)#, label_smoothing=0.1)
+        #loss_centr2 = kl_loss(centroids_matrix,similarity_matrix)
+
 
         #THIS LINE FOR SEMANTIC LEARNING
         #MARGIN ON THE INFONCELOSS
         #COMMENT IF YOU WANT TO SKIP
-        centroids_matrix = centroids_matrix+similarity_matrix
+        #centroids_matrix = centroids_matrix+similarity_matrix
 
         #TEMPERATURE SCALING
-        centroids_matrix = centroids_matrix / contra_temp
+        #centroids_matrix = centroids_matrix / contra_temp
         
         #CROSS ENTROPY
-        loss_centr = (
-                F.cross_entropy(centroids_matrix, targets, label_smoothing=0.1)
-                + F.cross_entropy(centroids_matrix.T, targets, label_smoothing=0.1)
-        ) / 2
-
+        #loss_centr = F.cross_entropy(centroids_matrix, similarity_matrix, label_smoothing=0.1)
+        #loss_centr = (
+        #        F.cross_entropy(centroids_matrix, similarity_matrix, label_smoothing=0.1)
+        #        + F.cross_entropy(centroids_matrix.T, similarity_matrix, label_smoothing=0.1)
+        #) / 2
+        #centroids = centroids_normalized
         #CENTROID-VIDEO Alignment
         cv = torch.matmul(centroids, vision_embedding.permute(1,0))
         #PROVA
-        cv = cv + similarity_matrix
+        #cv = cv + similarity_matrix
         cv = cv / contra_temp
         vc = torch.matmul(vision_embedding, centroids.permute(1,0))
         #PROVA
-        vc = vc + similarity_matrix
+        #vc = vc + similarity_matrix
         vc = vc / contra_temp
         loss_cv = (
-                F.cross_entropy(cv, targets, label_smoothing=0.1)
-                + F.cross_entropy(vc, targets, label_smoothing=0.1)
+                F.cross_entropy(cv, similarity_matrix, label_smoothing=0.1)
+                #F.cross_entropy(cv, similarity_matrix, label_smoothing=0.1)
+                + F.cross_entropy(vc, similarity_matrix, label_smoothing=0.1)
         ) / 2
         #CENTROID-Audio Alignment
         ca = torch.matmul(centroids, audio_embedding.permute(1,0))
-        ca = ca + similarity_matrix
+        #ca = ca + similarity_matrix
         ca = ca / contra_temp
         ac = torch.matmul(audio_embedding, centroids.permute(1,0))
-        ac = ac + similarity_matrix
+        #ac = ac + similarity_matrix
         ac = ac / contra_temp
         loss_ca = (
-                F.cross_entropy(ca, targets, label_smoothing=0.1)
-                + F.cross_entropy(ac, targets, label_smoothing=0.1)
-        ) / 2
+                F.cross_entropy(ca, similarity_matrix, label_smoothing=0.1)
+                #F.cross_entropy(ca, similarity_matrix, label_smoothing=0.1)
+                + F.cross_entropy(ac, similarity_matrix, label_smoothing=0.1)
+        ) /2
         #Centroid-Text Alignment
         ct = torch.matmul(centroids, text_embedding.permute(1,0))
-        ct = ct + similarity_matrix
+        #ct = ct + similarity_matrix
         ct = ct / contra_temp
         tc = torch.matmul(text_embedding, centroids.permute(1,0))
-        tc = tc + similarity_matrix
+        #tc = tc + similarity_matrix
         tc = tc / contra_temp
         loss_ct = (
-                F.cross_entropy(ct, targets, label_smoothing=0.1)
-                + F.cross_entropy(tc, targets, label_smoothing=0.1)
+                F.cross_entropy(ct, similarity_matrix, label_smoothing=0.1)
+                #F.cross_entropy(ct, similarity_matrix, label_smoothing=0.1)
+                + F.cross_entropy(tc, similarity_matrix, label_smoothing=0.1)
         ) / 2
 
-        loss= (loss_ca+loss_ct+loss_cv+loss_centr)/4
+        loss= (loss_ca+loss_ct+loss_cv+4*loss_centr2)/4
 
 
         

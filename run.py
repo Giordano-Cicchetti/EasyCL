@@ -26,7 +26,9 @@ from sklearn.model_selection import GroupShuffleSplit
 from dataloader import *
 from torchaudio import transforms as T
 import wandb
+from config import *
 
+cf = Config()
 
 
 def seed_everything(seed: int):
@@ -38,9 +40,8 @@ def seed_everything(seed: int):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
-    
-seed=42
-seed_everything(seed)
+
+seed_everything(cf.seed)
 wandb.init(
         # set the wandb project where this run will be logged
         project ="ProveContrastiveLearning",

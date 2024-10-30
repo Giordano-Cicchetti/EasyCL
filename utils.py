@@ -21,6 +21,40 @@ import plotly.graph_objects as go
 # THIS FUNCTION COMPUTE THE SIMILARITY AMONG DATA.
 # IN THE MNIST SCENARIO WE CAN IMPOSE OUR OWN SEMANTIC
 # E.G. NEAR NUMBERS->HIGHER SIMILARITY
+# def compute_similarity_matrix():
+#     # Define the number of items
+#     n_items = 10
+
+#     # Initialize an empty similarity matrix
+#     similarity_matrix = np.zeros((n_items, n_items))
+
+#     # Fill the matrix with similarity values iteratively
+#     for i in range(n_items):
+#         similarity_matrix[i, i] = 1.0  # Perfect similarity with itself
+
+#         # For items further away from item i (distance 1 to n_items - 1)
+#         for dist in range(1, n_items):
+#             # The target item index
+#             j = i + dist
+#             if j < n_items:
+#                 # The similarity value decreases as distance increases
+#                 similarity_value = 1.0 - dist * 0.2
+#                 similarity_matrix[i, j] = similarity_value
+#                 similarity_matrix[j, i] = similarity_value  # Ensure symmetry
+
+#     similarity_matrix = torch.tensor(similarity_matrix).to('cuda')
+#     # Print the similarity matrix
+#     print(similarity_matrix)
+
+#     #IF SMOOTHNING WITH SIGMOID STYLE
+#     similarity_matrix= 1-  (1/(1+torch.exp(-5*similarity_matrix)))
+
+#     #IF LINEAR DECADING
+#     #similarity_matrix = 1 - similarity_matrix
+#     print(similarity_matrix)
+#     return similarity_matrix
+
+
 def compute_similarity_matrix():
     # Define the number of items
     n_items = 10
@@ -28,32 +62,39 @@ def compute_similarity_matrix():
     # Initialize an empty similarity matrix
     similarity_matrix = np.zeros((n_items, n_items))
 
-    # Fill the matrix with similarity values iteratively
+    # Define the two groups
+    group_1 = [0, 1, 2, 3, 4]  # Group 1 (0-4)
+    group_2 = [5, 6, 7, 8, 9]  # Group 2 (5-9)
+
+    # Fill the matrix with similarity values
     for i in range(n_items):
-        similarity_matrix[i, i] = 1.0  # Perfect similarity with itself
+        for j in range(i, n_items):
+            if i == j:
+                similarity_matrix[i, j] = 1.0  # Perfect similarity with itself
+            elif (i in group_1 and j in group_1) or (i in group_2 and j in group_2):
+                similarity_matrix[i, j] = 0.2  # High similarity within the same group
+            else:
+                similarity_matrix[i, j] = 0  # Low similarity between groups
 
-        # For items further away from item i (distance 1 to n_items - 1)
-        for dist in range(1, n_items):
-            # The target item index
-            j = i + dist
-            if j < n_items:
-                # The similarity value decreases as distance increases
-                similarity_value = 1.0 - dist * 0.2
-                similarity_matrix[i, j] = similarity_value
-                similarity_matrix[j, i] = similarity_value  # Ensure symmetry
+            similarity_matrix[j, i] = similarity_matrix[i, j]  # Ensure symmetry
 
+    # Convert to torch tensor and move to GPU
     similarity_matrix = torch.tensor(similarity_matrix).to('cuda')
-    # Print the similarity matrix
+
+    # Print the raw similarity matrix
+    print("Raw Similarity Matrix:")
     print(similarity_matrix)
 
-    #IF SMOOTHNING WITH SIGMOID STYLE
-    similarity_matrix= 1-  (1/(1+torch.exp(-5*similarity_matrix)))
-
-    #IF LINEAR DECADING
-    #similarity_matrix = 1 - similarity_matrix
+    # If smoothing with sigmoid style
+    #similarity_matrix = 1 - (1 / (1 + torch.exp(-5 * (similarity_matrix))))  # Smoothing to get values between 0 and 1
+    #similarity_matrix = (1 / (1 + torch.exp(-5 * (similarity_matrix))))
+    print("Smoothing Applied (Sigmoid Style):")
     print(similarity_matrix)
+
+    # If linear decaying (if needed, you can uncomment this line)
+    # similarity_matrix = 1 - similarity_matrix
+
     return similarity_matrix
-
 
 
 def visualize_3d(text_embeddings,audio_embeddings,vision_embeddings,iterations,labels):    
