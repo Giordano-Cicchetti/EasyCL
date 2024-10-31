@@ -42,14 +42,16 @@ def seed_everything(seed: int):
     torch.backends.cudnn.benchmark = True
 
 seed_everything(cf.seed)
-wandb.init(
-        # set the wandb project where this run will be logged
-        project ="MNIST_ContrastiveLearning",
-        name = cf.run,
-        id= cf.run,
-        # track hyperparameters and run metadata
-        config= cf.log_config()
-)
+
+if cf.wandb == True:
+    wandb.init(
+            # set the wandb project where this run will be logged
+            project ="MNIST_ContrastiveLearning",
+            name = cf.run,
+            id= cf.run,
+            # track hyperparameters and run metadata
+            config= cf.log_config()
+    )
 
 
 

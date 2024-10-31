@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from loss import volume_computation3,volume_computation3Test,compute_centroidsTest,compute_centroids_only
-from loss import compute_loss_anchor,compute_loss_centroids,compute_loss_volume
+from loss import compute_loss_anchor,compute_loss_centroids,compute_loss_volume,area_computation,compute_loss_area
 from tqdm import tqdm
 import wandb
 from metrics import compute_metric_ret,compute_metric_ret2
@@ -21,7 +21,7 @@ from utils import visualize_3d,visualize_3d_interactively,compute_similarity_mat
 
 
 
-def eval(test_dataloader, text_encoder, audio_encoder, vision_encoder, device,iterations):
+def eval(cf, test_dataloader, text_encoder, audio_encoder, vision_encoder, device,iterations):
     """
     Extract embeddings from text, audio, and image modalities and visualize them in a 3D latent space.
     
@@ -74,7 +74,7 @@ def eval(test_dataloader, text_encoder, audio_encoder, vision_encoder, device,it
     vision_embeddings = np.concatenate(vision_embeddings, axis=0)   
 
     #VISUALIZE
-    visualize_3d(text_embeddings,audio_embeddings,vision_embeddings,iterations,labels) 
+    visualize_3d(cf, text_embeddings,audio_embeddings,vision_embeddings,iterations,labels) 
     if iterations>5000 and iterations<5051 :
         visualize_3d_interactively(text_embeddings,audio_embeddings,vision_embeddings,iterations,labels)
 
@@ -102,14 +102,22 @@ def eval(test_dataloader, text_encoder, audio_encoder, vision_encoder, device,it
     text_embeddings = feat_t_new
     text_embeddings = torch.stack(text_embeddings,dim=0)
 
-    #volume = volume_computation3(text_embeddings, audio_embeddings, vision_embeddings)
-    #log = compute_metric_ret2(volume.T, class_ids, labels, direction='forward')
+    if cf.eval_type == 'volume':
+        volume = volume_computation3(text_embeddings, audio_embeddings, vision_embeddings)
+        log = compute_metric_ret2(volume.T, class_ids, labels, direction='forward')
+    elif cf.eval_type == 'centroids':
+        centroids_norm,centroids = compute_centroidsTest(text_embeddings, audio_embeddings, vision_embeddings)
+        log = compute_metric_ret(centroids_norm.T, class_ids, labels, direction='forward')
 
-    centroids_norm,centroids = compute_centroidsTest(text_embeddings, audio_embeddings, vision_embeddings)
-    log = compute_metric_ret(centroids_norm.T, class_ids, labels, direction='forward')
+    elif cf.eval_type == 'area':
+        area = area_computation(text_embeddings, audio_embeddings, vision_embeddings)
+        log = compute_metric_ret2(area.T, class_ids, labels, direction='forward')
+
+
     log = {k.replace('forward','ZS CLASSIFICATION'): v for k,v in log.items()}
     print(log)
-    wandb.log(log)
+    if cf.wandb:
+        wandb.log(log)
 
 
 # Updated train model with latent space visualization
@@ -125,13 +133,11 @@ def train_model_with_visualization(cf,text_encoder, audio_encoder, vision_encode
     vision_encoder.train()
     iteration=0
     with torch.no_grad():
-        eval(dataloader_test, text_encoder, audio_encoder, vision_encoder, device,iteration)
+        eval(cf, dataloader_test, text_encoder, audio_encoder, vision_encoder, device,iteration)
         text_encoder.train()
         audio_encoder.train()
         vision_encoder.train()
 
-    if cf.loss_type == 'kl':
-        kl_loss = nn.KLDivLoss(reduction="batchmean")
 
     running_loss = 0.0
     tq=tqdm(range(num_iterations),total=num_iterations)
@@ -172,56 +178,18 @@ def train_model_with_visualization(cf,text_encoder, audio_encoder, vision_encode
         elif cf.loss_type == 'volume':
             loss = compute_loss_volume(text_embedding, audio_embedding, vision_embedding, bs, targets, cf, similarity_matrix,contra_temp)
 
+        elif cf.loss_type == 'area':
+            loss = compute_loss_area(text_embedding, audio_embedding, vision_embedding, bs, targets, cf, similarity_matrix,contra_temp)
         else:
             print("loss not implemented")
             return 0
 
 
-        
-
-
-        
-        # #OLD LOSSES 
-        # #VOLUME
-        # volume = volume_computation3(text_embedding, audio_embedding, vision_embedding)
-        # volume = volume / contra_temp
-        # volumeT = volume_computation3(text_embedding, audio_embedding, vision_embedding).T
-        # volumeT = volumeT / contra_temp
-
-        # loss_vol = (
-        #         F.cross_entropy(-volume, targets, label_smoothing=0.1)
-        #         + F.cross_entropy(-volumeT, targets, label_smoothing=0.1)
-        # ) / 2
-
-        # #TEXT VIDEO ALIGNMENT
-        # #TV
-        # tv = torch.matmul(text_embedding, vision_embedding.permute(1,0))
-        # tv = tv / contra_temp
-        # vt = torch.matmul(vision_embedding, text_embedding.permute(1,0))
-        # vt = vt / contra_temp
-        # loss_tv = (
-        #         F.cross_entropy(tv, targets, label_smoothing=0.1)
-        #         + F.cross_entropy(vt, targets, label_smoothing=0.1)
-        # ) / 2
-        # #TEXT AUDIO ALIGNMENT
-        # ta = torch.matmul(text_embedding, audio_embedding.permute(1,0))
-        # ta = ta / contra_temp
-        # at = torch.matmul(audio_embedding, text_embedding.permute(1,0))
-        # at = at / contra_temp
-        # loss_ta = (
-        #         F.cross_entropy(ta, targets, label_smoothing=0.1)
-        #         + F.cross_entropy(at, targets, label_smoothing=0.1)
-        # ) / 2
-        
-        
-        #loss = (lossCentr + loss_tv + loss_ta)/3
-        #loss = (lossCentr + loss_tv + loss_ta + mse)/4
-        #loss = (lossCentr  + mse)/2
-
         # Log training loss to W&B
-        wandb.log({
-        "train_loss": loss,
-        })
+        if cf.wandb:
+            wandb.log({
+            "train_loss": loss,
+            })
 
         #BACKWARD LOSS
         optimizer.zero_grad()
@@ -235,7 +203,7 @@ def train_model_with_visualization(cf,text_encoder, audio_encoder, vision_encode
         #EVALUATE EVERY evaluate_iteration=50
         with torch.no_grad():
             if (iteration % 50)==0:
-                eval(dataloader_test, text_encoder, audio_encoder, vision_encoder, device,iteration) 
+                eval(cf, dataloader_test, text_encoder, audio_encoder, vision_encoder, device,iteration) 
                 text_encoder.train()
                 audio_encoder.train()
                 vision_encoder.train()
@@ -243,9 +211,12 @@ def train_model_with_visualization(cf,text_encoder, audio_encoder, vision_encode
     # Average loss for the epoch
     epoch_loss = running_loss / num_iterations
     print(f' Loss mean: {epoch_loss:.4f}')
-    wandb.log({
-        "mean_train_loss": epoch_loss,
-    })
+    if cf.wandb:
+        wandb.log({
+            "mean_train_loss": epoch_loss,
+        })
+
+    return 0 
         
 
 

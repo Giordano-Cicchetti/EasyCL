@@ -81,7 +81,7 @@ def compute_similarity_matrix(similarity_type):
 
                 similarity_matrix[j, i] = similarity_matrix[i, j]  # Ensure symmetry
 
-    elif similarity_type == "ordered":
+    elif similarity_type == "ordered_numbers":
         similarity_matrix = np.zeros((n_items, n_items))
 
         # Fill the matrix with similarity values iteratively
@@ -94,7 +94,7 @@ def compute_similarity_matrix(similarity_type):
                 j = i + dist
                 if j < n_items:
                     # The similarity value decreases as distance increases
-                    similarity_value = 1.0 - dist * 0.1
+                    similarity_value = 1.0 - dist * 0.2
                     similarity_matrix[i, j] = similarity_value
                     similarity_matrix[j, i] = similarity_value  # Ensure symmetry
 
@@ -125,7 +125,7 @@ def compute_similarity_matrix(similarity_type):
     return similarity_matrix
 
 
-def visualize_3d(text_embeddings,audio_embeddings,vision_embeddings,iterations,labels):    
+def visualize_3d(cf, text_embeddings,audio_embeddings,vision_embeddings,iterations,labels):    
     
     # Create a 3D plot
     fig = plt.figure(figsize=(10, 8))
@@ -166,7 +166,7 @@ def visualize_3d(text_embeddings,audio_embeddings,vision_embeddings,iterations,l
     ax.legend()
     plt.savefig(f'latent space at {iterations}.png')
 
-    if iterations%1000 == 0:
+    if iterations%1000 == 0 and cf.wandb :
         wandb.log({"example": wandb.Image(f'latent space at {iterations}.png')})
     
 

@@ -6,9 +6,11 @@ class Config():
         self.num_iterations = 10000
         self.device='cuda'
         self.seed = 42
-        self.loss_type =   'anchor'  #'centroids'   #anchor or volume or centroids
+        self.loss_type =   'centroids'  #'centroids'   #anchor or volume or centroids or area 
+        self.anchor_selection = 'text' #'visual' 'audio'  If loss_type = anchor you can choose the anchor type 
+        
         self.lr = 1e-4
-        self.eval_type=    'centroids'    #centroids or volume
+        self.eval_type=    'centroids'    #centroids or volume or area
         self.normalization =  True
         self.distribution_type=    'ce'           #ce or kl or wass
         self.similarity_matrix =     'false'           #false or only_centroids or everywhere
@@ -20,6 +22,8 @@ class Config():
         self.centroids_matrix_temperature = False
         self.label_smoothing_centroids = False
         self.centroid_scale = 4
+
+        self.wandb = True
         self.run =  f'RUN_{self.loss_type}_{self.distribution_type}_{self.similarity_matrix}_{self.similarity_type}'
 
 
