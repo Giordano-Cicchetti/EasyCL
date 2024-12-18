@@ -6,7 +6,7 @@ class Config():
         self.num_iterations = 10000
         self.device='cuda'
         self.seed = 42
-        self.loss_type =   'centroids'  #'centroids'   #anchor or volume or centroids or area 
+        self.loss_type =   'anchor'  #'centroids'   #anchor or volume or centroids or area 
         self.anchor_selection = 'text' #'visual' 'audio'  If loss_type = anchor you can choose the anchor type 
         
         self.lr = 1e-4
